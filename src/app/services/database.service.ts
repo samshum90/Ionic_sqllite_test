@@ -19,6 +19,7 @@ const DB_NAME_KEY = 'db_name';
 export class DatabaseService {
   dbReady = new BehaviorSubject(false);
   dbName = '';
+  sqlite: any;
 
   constructor(private http: HttpClient, private alertCtrl: AlertController) { }
 
@@ -50,7 +51,7 @@ export class DatabaseService {
           return of({ values: [] });
         } else {
           const statement = 'SELECT * FROM products;';
-          return from(CapacitorSQLite.query({ statement, values: [] }));
+          return from(CapacitorSQLite.query({ database: this.dbName, statement, values: [] }));
         }
       })
     );
@@ -58,23 +59,23 @@ export class DatabaseService {
 
   async getProductById(id) {
     const statement = `SELECT * FROM products LEFT JOIN vendors ON vendors.id=products.vendorid WHERE products.id=${id} ;`;
-    return (await CapacitorSQLite.query({ statement, values: [] })).values[0];
+    return (await CapacitorSQLite.query({ database: this.dbName, statement, values: [] })).values[0];
   }
 
   getDatabaseExport(mode) {
-    return CapacitorSQLite.exportToJson({ jsonexportmode: mode });
+    return CapacitorSQLite.exportToJson({ database: this.dbName, jsonexportmode: mode });
   }
 
   addDummyProduct(name) {
     const randomValue = Math.floor(Math.random() * 100) + 1;
     const randomVendor = Math.floor(Math.random() * 3) + 1;
     const statement = `INSERT INTO products (name, currency, value, vendorid) VALUES ('${name}','EUR', ${randomValue}, ${randomVendor});`;
-    return CapacitorSQLite.execute({ statements: statement });
+    return CapacitorSQLite.execute({ database: this.dbName, statements: statement });
   }
 
   deleteProduct(productId) {
     const statement = `DELETE FROM products WHERE id = ${productId};`;
-    return CapacitorSQLite.execute({ statements: statement });
+    return CapacitorSQLite.execute({ database: this.dbName, statements: statement });
   }
 
   // For testing only..
@@ -91,6 +92,7 @@ export class DatabaseService {
       this.downloadDatabase();
     } else {
       this.dbName = (await Storage.get({ key: DB_NAME_KEY })).value;
+      await CapacitorSQLite.createConnection({ database: this.dbName });
       await CapacitorSQLite.open({ database: this.dbName });
       this.dbReady.next(true);
     }
@@ -101,7 +103,6 @@ export class DatabaseService {
   private downloadDatabase(update = false) {
     this.http.get('https://devdactic.fra1.digitaloceanspaces.com/tutorial/db.json').subscribe(async (jsonExport: JsonSQLite) => {
       const jsonstring = JSON.stringify(jsonExport);
-      console.log(jsonExport);
       const isValid = await CapacitorSQLite.isJsonValid({ jsonstring });
 
       if (isValid.result) {
@@ -109,17 +110,14 @@ export class DatabaseService {
         await Storage.set({ key: DB_NAME_KEY, value: this.dbName });
         await CapacitorSQLite.importFromJson({ jsonstring });
         await Storage.set({ key: DB_SETUP_KEY, value: '1' });
-
         // Your potential logic to detect offline changes later
         if (!update) {
-          await CapacitorSQLite.createSyncTable({});
-          console.log('update');
+          await CapacitorSQLite.createSyncTable({ database: this.dbName });
         } else {
-          await CapacitorSQLite.setSyncDate({ syncdate: '' + new Date().getTime() });
+          await CapacitorSQLite.setSyncDate({ database: this.dbName, syncdate: '' + new Date().getTime() });
         }
         this.dbReady.next(true);
       }
     });
   }
-
 }
